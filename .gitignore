@@ -1,0 +1,23 @@
+# CMake build trees
+/build*/
+/CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# TensorRT engines are hardware/runtime specific
+/models/*.engine
+
+# Generated tensor dumps
+/results/**/*.bin
+/results/**/*.npy
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
