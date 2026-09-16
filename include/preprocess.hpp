@@ -18,6 +18,8 @@ class letterboxmeta{
         int pad_y=0;
 
         float scale=0.0f;
+        
+        bool computemeta(const cv::Mat& image);
 };
 
 

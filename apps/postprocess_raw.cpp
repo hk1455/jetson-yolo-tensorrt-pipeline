@@ -3,16 +3,26 @@
 #include<fstream>
 #include <opencv2/opencv.hpp>
 #include "postprocess.hpp"
+#include "preprocess.hpp"
 
-#define output_path "results/cpp/bus_raw_output.bin"
-#define json_path "results/cpp/bus_input.json"
-#define image_path "assets/bus.jpg"
+#define output_path "results/cuda_preprocess/home_raw_output_V6.bin"
+#define image_path "assets/home.jpeg"
 
-float confidence_threshold=0.25;
+float confidence_threshold=0.20;
 float iou_threshold=0.45;
 
 
 int main(){
+
+    cv::Mat image=cv::imread(image_path);
+    letterboxmeta meta;
+    meta.new_size=640;
+    std::vector<float> cpu_output;
+
+    if(!meta.computemeta(image))
+    {
+        std::cout<<"meta计算失误";
+    }
 
     postprocess pos{
         confidence_threshold,
@@ -62,11 +72,10 @@ int main(){
 
     for(int i=0;i<det3.size();i++)
     { 
-        pos.size2original(det3[i],0.59259260,80,0 ,810,1080);
+        pos.size2original(det3[i],meta.scale,meta.pad_x,meta.pad_y,meta.original_width,meta.original_height);
     }
 
 //画图
-    cv::Mat image=cv::imread(image_path);
     if(image.empty())
         {
             std::cerr<<"图片加载失败"<<std::endl;
@@ -87,7 +96,7 @@ int main(){
         else
             label = "bus "+oss.str();
         int fontFace = cv::FONT_HERSHEY_COMPLEX;
-        double fontScale = 0.6;
+        double fontScale = 1.5;
         cv::Scalar color(0, 0, 255); // 红色
         int thickness = 2;
 
@@ -96,6 +105,7 @@ int main(){
         cv::putText(image, label, textOrg, fontFace, fontScale, color, thickness);
     }
 
-    cv::imwrite("results/cpp/bus_detection.jpg", image);
+    
+    cv::imwrite("results/cuda_preprocess/home_cudapreprocess_detection.jpg", image);
     return 0;
 }

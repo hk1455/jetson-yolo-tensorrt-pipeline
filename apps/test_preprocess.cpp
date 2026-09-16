@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 
-#define IMAGE_PATH "assets/bus.jpg"
+#define IMAGE_PATH "assets/home.jpeg"
 
-#define OUT_PATH "results/cpp/bus_input.bin"
-#define JSON_OUT_PATH "results/cpp/bus_input.json"
+#define OUT_PATH "results/cpp/home_input.bin"
+#define JSON_OUT_PATH "results/cpp/home_input.json"
 
 int main(){
     letterboxmeta meta{

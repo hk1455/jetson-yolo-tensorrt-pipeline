@@ -97,6 +97,42 @@ std::vector<detection> postprocess::nms(
     
 };
 
+std::vector<detection> postprocess::process(float* output,letterboxmeta meta,float confidence_threshold)
+{
+
+    std::vector<detection> det;
+    for(int i=0;i<8400;i++){
+        float max_confidence=output[i+4*8400];
+        int class_id=0;
+        
+        for(int j=0;j<80;j++)
+        {
+            float new_confidence=output[(4+j)*8400+i];
+            if(max_confidence<new_confidence)
+            {
+                max_confidence=new_confidence;
+                class_id=j;
+            }
+        }
+
+        if(max_confidence>confidence_threshold)
+        {
+            detection det1;
+            xywh_xyxy(
+                output[i],
+                output[i+8400],
+                output[i+2*8400],
+                output[i+3*8400],
+                det1
+            );
+            det1.confidence=max_confidence;
+            det1.class_id=class_id;
+            det.push_back(det1);
+        }
+    }
+    return det;
+};
+
 void postprocess::size2original(
         detection& det,
         float scale,

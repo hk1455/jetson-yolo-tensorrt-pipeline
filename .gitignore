@@ -21,3 +21,11 @@ __pycache__/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Profiling databases / generated video results
+*.nsys-rep
+*.ncu-rep
+*.sqlite
+*.sqlite-*
+/result.csv
+/result.mp4

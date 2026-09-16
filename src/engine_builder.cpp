@@ -71,8 +71,11 @@ bool EngineBuilder::build(const BuildOptions& options){
     );
     
     config->addOptimizationProfile(profile);
+    config->setProfilingVerbosity(
+        nvinfer1::ProfilingVerbosity::kDETAILED
+    );
 
-    config->clearFlag(nvinfer1::BuilderFlag::kTF32);
+    //config->clearFlag(nvinfer1::BuilderFlag::kTF32);//默认是tf32,这里是ktf32
 
     if(options.fp16){
         config->setFlag(

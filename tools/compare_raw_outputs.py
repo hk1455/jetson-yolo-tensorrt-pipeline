@@ -3,7 +3,7 @@ import numpy as np
 
 
 ORT_PATH="results/ort/bus_raw_output.npy"
-CPP_PATH="results/cpp/bus_raw_output.bin"
+CPP_PATH="results/cuda_preprocess/home_raw_output_V6.bin"
 
 def main():
     ort=np.load(ORT_PATH)

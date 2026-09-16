@@ -90,6 +90,7 @@ std::string dimStoString(const nvinfer1::Dims& dims){
 
 int volume(const nvinfer1::Dims& dims){
     int element=1;
+//dims.nbDims是表示这个张量有多少维度，dims.d[i]表示第i个维度的大小
     for(int i=0;i<dims.nbDims;i++)
     {
       
@@ -161,8 +162,8 @@ bool trtengine::load(const std::string& engine_path)
     }
     return 1;
 };
-//打印cudaengine的输入输出张量信息，同时记录输入输出的名字
-void trtengine::printTensorInfo(){
+//记录输入输出的名字
+bool trtengine::getIOname(){
     int tensor_size=cudaengine_->getNbIOTensors();
 
 
@@ -172,20 +173,12 @@ void trtengine::printTensorInfo(){
         nvinfer1::TensorIOMode mode=cudaengine_->getTensorIOMode(name);
 
         if(mode==nvinfer1::TensorIOMode::kINPUT)
-            input_name.push_back(name);
+            input_name_=name;
         if(mode==nvinfer1::TensorIOMode::kOUTPUT)
-            output_name.push_back(name);
-
-        nvinfer1::DataType datatype=cudaengine_->getTensorDataType(name);
-        nvinfer1::Dims dims=cudaengine_->getTensorShape(name);
-        std::cout<<name<<std::endl;
-        std::cout<<ioModeToString(mode)<<std::endl;
-        std::cout<<dataTypetoString(datatype)<<std::endl;
-        std::cout<<dimStoString(dims)<<std::endl;
+            output_name_=name;
     };
 
-
-
+    return true;
 };
 
 //根据cudaengine创建本次执行使用的context
@@ -195,19 +188,17 @@ bool trtengine::createContext(){
     {
         std::cout<<"fail to create context";
 
-        return 0;
+        return false;
     }
-    return 1;
-
+    return true;
 };
 
 //给context设置inputshape
 bool trtengine::setInputShape(const nvinfer1::Dims4& dims){
- for(size_t i=0;i<input_name.size();i++)
-   { 
+
         bool suc=context_->setInputShape
         (
-            input_name[i].c_str(),
+            input_name_.c_str(),
             dims
         );
 
@@ -215,48 +206,32 @@ bool trtengine::setInputShape(const nvinfer1::Dims4& dims){
         {
             std::cout<<"fail to set context";
 
-            return 0;
+            return false;
         }
-    }
-    return 1;
+    return true;
 };
 
-//获取context运行时的shape，并计算input/output tensor的元素数量和buffer的字节数量
-void trtengine::printRuntime(){
-    for(size_t i=0;i<input_name.size();i++)
-   { 
-        nvinfer1::Dims context_dims=context_->getTensorShape(input_name[i].c_str());
-        nvinfer1::DataType datatype=cudaengine_->getTensorDataType(input_name[i].c_str());
-
+//获取获取input/output的数量和姓名，context运行时的shape，并计算input/output tensor的元素数量和buffer的字节数量
+bool trtengine::setupIO(){
+        //根据inputname获取输入的shape
+        nvinfer1::Dims context_dims=context_->getTensorShape(input_name_.c_str());
+        //根据inputname得到数据类型
+        nvinfer1::DataType datatype=cudaengine_->getTensorDataType(input_name_.c_str());
+        //根据shape得到element_count
         int element_count=volume(context_dims);
+        //根据element_count和datatype得到输入的大小
+        input_bytes_=datasize(datatype)*element_count;
+        input_elements_=input_bytes_/datasize(datatype);
 
-        host_input.resize(volume(context_dims));
-        input_datasize=datasize(datatype)*element_count;
-
-        std::cout<<dimStoString(context_dims)<<std::endl;
-        std::cout<<"Element : "<<element_count<<std::endl;
-
-        std::cout<<dataTypetoString(datatype)<<": ";
-        std::cout<<input_datasize<<std::endl;
-    }
-
-    for(size_t i=0;i<output_name.size();i++)
-    { 
-        nvinfer1::Dims context_dims=context_->getTensorShape(output_name[i].c_str());
-        nvinfer1::DataType datatype=cudaengine_->getTensorDataType(output_name[i].c_str());
+        //output流程同上
+        nvinfer1::Dims out_context_dims=context_->getTensorShape(output_name_.c_str());
+        nvinfer1::DataType out_datatype=cudaengine_->getTensorDataType(output_name_.c_str());
         
-        int element_count=volume(context_dims);
-
-        host_output.resize(element_count);
-        output_datasize=datasize(datatype)*element_count;
-        
-        std::cout<<dimStoString(context_dims)<<std::endl;
-        std::cout<<"Element : "<<element_count<<std::endl;
-
-        std::cout<<dataTypetoString(datatype)<<": ";
-        std::cout<< output_datasize<<std::endl;
-
-    }
+        int out_element_count=volume(out_context_dims);
+        output_bytes_=datasize(out_datatype)*out_element_count;
+        output_elements_=output_bytes_/datasize(datatype);
+    
+        return true;
 };
 
 
@@ -283,7 +258,7 @@ void printTensorStats(const std::vector<float>& data)
     std::cout << "Inf: " << inf_count << '\n';
 }
 
-bool trtengine::readFloatBinary(const std::string& path,size_t expected_elements)
+bool trtengine::readFloatBinary(const std::string& path,std::vector<float>& input)
 {
     std::ifstream file(path,std::ios::binary|std::ios::ate);
     if (!file.is_open()) {
@@ -291,112 +266,228 @@ bool trtengine::readFloatBinary(const std::string& path,size_t expected_elements
         return false;
     }
 
-    expected_elements=file.tellg();
+    int bytes=file.tellg();
     file.seekg(0,std::ios::beg);
 
-    host_input.resize(expected_elements/sizeof(float));
-    file.read (reinterpret_cast<char*>(host_input.data()),expected_elements);
+    input.resize(bytes/sizeof(float));
+    file.read (reinterpret_cast<char*>(input.data()),bytes);
 
     return true;
 }
 
-bool trtengine::infer(int batch,const std::string& out_BIN_PATH){
-
-    setInputShape(nvinfer1::Dims4 {batch,3,640,640});
-    printRuntime();
-    std::fill(
-        host_output.begin(),
-        host_output.end(),
-        -999.0f
-    );
-
-    void* device_input=nullptr;
-    void* device_output=nullptr;
+bool trtengine::prepare(const nvinfer1::Dims4& dims)
+{
+    if(!getIOname()){
+        return false;
+    }
+    if(!setInputShape(dims)){
+        return false;
+    }
+    if(!setupIO()){
+        return false;
+    }
 
     cuda_check(
             cudaMalloc(
             &device_input,
-            input_datasize
+            input_bytes_
         )
     );
 
     cuda_check(
             cudaMalloc(
             &device_output,
-            output_datasize
+            output_bytes_
         )
     );   
 
-    cudaStream_t stream=nullptr;
-
     cuda_check(
         cudaStreamCreate(&stream)
+    );
+     if(
+        !context_->setTensorAddress(
+        input_name_.c_str(),
+        device_input
+    ))
+    {
+        std::cerr<<"fail to settensorAddress input";
+        return false;
+    }
+    if(!context_->setTensorAddress(
+        output_name_.c_str(),
+        device_output
+    ))
+    {
+        std::cerr<<"fail to settensorAddress output";
+        return false;
+    }
+
+    cudaEventCreate(&e0_);
+    cudaEventCreate(&e1_);
+    cudaEventCreate(&e2_);
+    cudaEventCreate(&e3_);
+
+    return true;
+};
+
+
+bool trtengine::infer(
+        const float*  host_input,
+        float*  host_output,
+        RuntimeTiming* timeing
+    )
+{
+
+    cudaEventRecord(
+        e0_,
+        stream
     );
 
     cuda_check(
         cudaMemcpyAsync(
             device_input,
-            host_input.data(),
-            input_datasize,
+            host_input,
+            input_bytes_,
             cudaMemcpyHostToDevice,
             stream
         )
     );
 
-    if(
-        !context_->setTensorAddress(
-        input_name[0].c_str(),
-        device_input
-    ))
-    {
-        std::cerr<<"fail to settensorAddress input";
-    }
-    if(!context_->setTensorAddress(
-        output_name[0].c_str(),
-        device_output
-    ))
-    {
-        std::cerr<<"fail to settensorAddress output";
-    }
+    cudaEventRecord(
+        e1_,
+        stream
+    );
 
-    bool success=context_->enqueueV3(stream);
-
-    if(!success){
+    if(!context_->enqueueV3(stream)){
         std::cerr<<"TensorRT enqueueV3 failed";
+        return false;
     }
+
+    cudaEventRecord(
+        e2_,
+        stream
+    );
 
     cuda_check(
         cudaMemcpyAsync(
-            host_output.data(),
+            host_output,
             device_output,
-            output_datasize,
+            output_bytes_,
             cudaMemcpyDeviceToHost,
             stream
         )
     );
+    cudaEventRecord(
+        e3_,
+        stream
+    );
 
-    cudaStreamSynchronize(stream);
+    cudaEventSynchronize(e3_);
+
+    if(timeing!=nullptr)
+    {
+        cudaEventElapsedTime(
+            &timeing->h2d_ms,
+            e0_,
+            e1_
+        );
+        cudaEventElapsedTime(
+            &timeing->trt_ms,
+            e1_,
+            e2_
+        );
+        cudaEventElapsedTime(
+            &timeing->d2h_ms,
+            e2_,
+            e3_
+        );
+    }
+
+
+
+    
+    return true;
 
     // size_t single_output_elements = 84 * 8400;
     // std::cout << trtengine.host_output[0] << '\n';
     // std::cout << trtengine.host_output[single_output_elements] << '\n';
     // std::cout << trtengine.host_output[2 * single_output_elements] << '\n';
     // std::cout << trtengine.host_output[3 * single_output_elements] << '\n';
-
-    std::cout << "output[0]      = " << host_output.at(0) << '\n';
-    std::cout << "output[1]      = " << host_output.at(1) << '\n';
-    std::cout << "output[10]     = " << host_output.at(10) << '\n';
-    std::cout << "output[100]    = " << host_output.at(100) << '\n';
-    std::cout << "output[1000]   = " << host_output.at(1000) << '\n';
-    std::cout << "output[mid]    = " << host_output.at(705600 / 2) << '\n';
-    std::cout << "output[last]   = " << host_output.at(705600 - 1) << '\n';
-
     // printTensorStats(trtengine.host_output);
 
-    std::ofstream ofs(out_BIN_PATH,std::ios::binary);
+    // std::ofstream ofs(out_BIN_PATH,std::ios::binary);
 
-    ofs.write(
-        reinterpret_cast<const char*>(host_output.data()), 
-        host_output.size() * sizeof(float)
-    );
+    // ofs.write(
+    //     reinterpret_cast<const char*>(host_output.data()), 
+    //     host_output.size() * sizeof(float)
+    // );
 };
+
+
+#include <chrono>
+using Clock=std::chrono::steady_clock;
+
+bool trtengine::inferDevice(
+        float*  device_cudaprepro_input,
+        RuntimeTiming* timeing
+        
+){
+    
+     if(
+        !context_->setTensorAddress(
+        input_name_.c_str(),
+        device_cudaprepro_input
+    ))
+    {
+        std::cerr<<"fail to settensorAddress input";
+        return false;
+    }
+    if(!context_->setTensorAddress(
+        output_name_.c_str(),
+        device_output
+    ))
+    {
+        std::cerr<<"fail to settensorAddress output";
+        return false;
+    }
+    
+
+    if(!context_->enqueueV3(stream)){
+        std::cerr<<"TensorRT enqueueV3 failed";
+        return false;
+    }
+    
+    return true;
+
+}
+
+bool trtengine::inferfram(
+        float* device_cudaprepro_input,
+        float* device_fram_output
+){
+         if(
+        !context_->setTensorAddress(
+        input_name_.c_str(),
+        device_cudaprepro_input
+    ))
+    {
+        std::cerr<<"fail to settensorAddress input";
+        return false;
+    }
+    if(!context_->setTensorAddress(
+        output_name_.c_str(),
+        device_fram_output
+    ))
+    {
+        std::cerr<<"fail to settensorAddress output";
+        return false;
+    }
+    
+
+    if(!context_->enqueueV3(stream)){
+        std::cerr<<"TensorRT enqueueV3 failed";
+        return false;
+    }
+    
+    return true;
+}

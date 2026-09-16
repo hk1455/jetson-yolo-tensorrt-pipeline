@@ -1,0 +1,345 @@
+Day15 - Trusted Benchmark Baseline
+
+Date:
+2026-08-25
+
+
+==================================================
+Environment
+==================================================
+
+Platform:
+Jetson AGX Orin
+
+Power Mode:
+MAXN
+
+jetson_clocks:
+ON
+
+CPU Clock:
+2.2016 GHz locked
+
+GPU Clock:
+1.3005 GHz locked
+
+EMC:
+3.199 GHz
+FreqOverride = 1
+
+
+==================================================
+Benchmark Configuration
+==================================================
+
+Engine:
+TensorRT FP32
+
+Batch:
+1
+
+Input:
+1x3x640x640
+
+Benchmark Image:
+<填写固定测试图片>
+
+Warmup:
+30
+
+Runs:
+200
+
+Execution:
+Serial / Synchronous Pipeline
+
+Pipeline:
+
+CPU Preprocess
+→ H2D
+→ TensorRT
+→ D2H
+→ CPU Process
+→ CPU NMS
+→ Reverse Letterbox
+
+
+==================================================
+Core Benchmark Results
+==================================================
+
+Mean:
+
+Preprocess:
+2.41749 ms
+
+Host Infer:
+5.44037 ms
+
+Postprocess:
+3.63105 ms
+
+Core E2E:
+11.4889 ms
+
+
+p50:
+
+Preprocess:
+2.40958 ms
+
+Host Infer:
+5.43340 ms
+
+Postprocess:
+3.62270 ms
+
+Core E2E:
+11.4717 ms
+
+
+p95:
+
+Preprocess:
+2.50491 ms
+
+Host Infer:
+5.48132 ms
+
+Postprocess:
+3.70223 ms
+
+Core E2E:
+11.6101 ms
+
+
+Min:
+
+Core E2E:
+11.3896 ms
+
+
+Max:
+
+Core E2E:
+11.8664 ms
+
+
+Serial-equivalent FPS:
+~87 FPS
+
+
+==================================================
+GPU Runtime Breakdown
+==================================================
+
+Mean:
+
+H2D:
+0.54423 ms
+
+TensorRT:
+4.41896 ms
+
+D2H:
+0.428815 ms
+
+GPU Runtime Sum:
+~5.392 ms
+
+Host Infer:
+5.44037 ms
+
+Host-side Runtime Overhead:
+~0.048 ms
+
+
+TensorRT Stability:
+
+mean:
+4.41896 ms
+
+p50:
+4.41715 ms
+
+p95:
+4.43849 ms
+
+min:
+4.40406 ms
+
+max:
+4.45840 ms
+
+
+==================================================
+Postprocess Breakdown
+==================================================
+
+PROCESS:
+3.58172 ms
+
+NMS:
+0.04874 ms
+
+Reverse Letterbox:
+0.00059 ms
+
+Observation:
+
+Postprocess latency is almost entirely caused by
+the PROCESS / decode stage.
+
+NMS latency is negligible.
+
+Reverse Letterbox latency is negligible.
+
+
+==================================================
+Bottleneck Analysis
+==================================================
+
+Main Bottlenecks:
+
+1. TensorRT inference
+   ~4.42 ms
+
+2. CPU PROCESS / Decode
+   ~3.58 ms
+
+3. CPU Preprocess
+   ~2.42 ms
+
+4. H2D + D2H
+   ~0.97 ms
+
+NMS and Reverse Letterbox are not current bottlenecks.
+
+
+Approximate Core E2E Breakdown:
+
+TensorRT:
+~38%
+
+CPU Postprocess:
+~32%
+
+CPU Preprocess:
+~21%
+
+H2D + D2H:
+~8%
+
+
+==================================================
+System Observation
+==================================================
+
+Benchmark environment was fixed using:
+
+MAXN
++
+jetson_clocks
+
+CPU, GPU and EMC clocks were locked during the
+final benchmark.
+
+tegrastats observation:
+
+- GPU workload was observed.
+- No swap usage was observed.
+- No significant memory pressure was observed.
+- CPU temperature was approximately 50 C.
+- GPU temperature was approximately 46 C.
+- No thermal throttling was observed.
+
+Earlier benchmark runs showed large latency differences
+when runtime conditions were not fully controlled.
+
+After fixing power mode and clocks, benchmark results
+became stable and reproducible.
+
+
+==================================================
+Benchmark Validation
+==================================================
+
+Timing consistency:
+
+H2D + TRT + D2H
+≈ 5.392 ms
+
+Host Infer
+≈ 5.440 ms
+
+The CUDA Event runtime and host-observed runtime
+are consistent.
+
+Preprocess + Host Infer + Postprocess
+≈ Core E2E
+
+The benchmark timing pipeline is internally consistent.
+
+
+==================================================
+Conclusion
+==================================================
+
+A stable FP32 B1 640x640 benchmark baseline has been
+established.
+
+Final Core E2E mean:
+11.4889 ms
+
+Final Core E2E p50:
+11.4717 ms
+
+Final Core E2E p95:
+11.6101 ms
+
+Serial-equivalent FPS:
+~87 FPS
+
+Current main performance bottlenecks are:
+
+TensorRT inference
+>
+CPU PROCESS / Decode
+>
+CPU Preprocess
+
+NMS is not a meaningful optimization target at the
+current stage.
+
+
+==================================================
+Next Hypothesis - Day16
+==================================================
+
+Day16 will investigate Runtime Memory Engineering.
+
+Experiment:
+
+Pageable Host Memory
+vs
+Pinned Host Memory
+
+Compare:
+
+H2D latency
+D2H latency
+Host Infer latency
+Core E2E latency
+
+All Day16 before / after benchmarks must use the same:
+
+Power Mode
+Clock configuration
+Engine
+Input image
+Batch size
+Input resolution
+Warmup count
+Run count
+
+as the Day15 baseline.

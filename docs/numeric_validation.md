@@ -174,3 +174,8 @@ NMS
 ```
 
 而不是首先怀疑 TensorRT Engine / Runtime。
+
+## FP16 Validation
+| Batch | Engine | Max Abs | Mean Abs | Median Abs | P99 Abs |
+|---|---|---:|---:|---:|---:|
+| B1 | FP16 | 3.5651245 | 0.004404223 | 5.9604645e-08 | 0.13253784 |

@@ -8,15 +8,18 @@ const char* out_BIN_PATH="results/cpp/bus_raw_output.bin";
 
 int main()
 {
+    RuntimeTiming timing;
     trtengine trtengine;
     trtengine.load(MODEL_PATH);
-    trtengine.printTensorInfo();
+
+    std::vector<float> input;
+    trtengine.readFloatBinary(In_BIN_PATH,input);
+    std::vector<float> output;
 
     trtengine.createContext();
     size_t in_size;
-    int batch=1;
-    trtengine.readFloatBinary(In_BIN_PATH,in_size);
-    trtengine.infer(batch,out_BIN_PATH);
+    trtengine.batch=1;
+    trtengine.infer(input.data(),output.data(),&timing);
 //     trtengine trtengine;
 //     trtengine.load(MODEL_PATH);
 //     trtengine.printTensorInfo();

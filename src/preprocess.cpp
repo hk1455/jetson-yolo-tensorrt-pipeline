@@ -30,6 +30,38 @@ void saveLetterboxMeta(const letterboxmeta& meta, const std::string& path) {
     ofs << "}\n";
 };
 
+        
+bool letterboxmeta::computemeta(const cv::Mat& image)
+{
+    if(image.empty())
+        return false;
+
+    int width=image.cols;
+    int height=image.rows;
+
+    original_height=height;
+    original_width=width;
+
+    scale=std::min(
+      static_cast<float>(new_size)/height,
+      static_cast<float>(new_size)/width
+    );
+    
+    resized_height=std::round(scale*height);
+    resized_width=std::round(scale*width);
+
+    int left=(new_size-resized_width)/2;
+    int top=(new_size-resized_height)/2;
+
+    int right=new_size-resized_width-left;
+    int bottom=new_size-resized_height-top;
+
+    pad_x=left;
+    pad_y=top;
+
+    return true;
+}
+
 bool preprocess(const cv::Mat& image,std::vector<float>& tensor,letterboxmeta& meta)
 {
     if(image.empty())

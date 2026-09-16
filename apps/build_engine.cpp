@@ -4,11 +4,11 @@
 int main(){
     const BuildOptions options{
             "models/yolov8n.onnx",
-            "models/yolov8n_cpp_notf32.engine",//这里是tf32的engine
+            "models/yolov8n_cpp_fp16_profile.engine",//这里是tf32的engine
             1,
             4,
             8,
-            false
+            true
         };
     EngineBuilder builder;
 
