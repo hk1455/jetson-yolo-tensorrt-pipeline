@@ -231,7 +231,12 @@ int main(){
         {
             if(!trtengine.inferfram(slot.device_input, slot.device_output))
                 return -1;
-
+            cuda_check(cudaMemsetAsync(slot.device_det_count, 0, sizeof(int),
+                                       trtengine.stream));
+            if(!launchDecodeFilter(slot.device_output, slot.device_detections,
+                                   slot.device_det_count, confidence_threshold,
+                                   trtengine.stream))
+                return -1;
         }
         cuda_check(cudaStreamSynchronize(trtengine.stream));
 

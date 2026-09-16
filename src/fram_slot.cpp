@@ -167,10 +167,25 @@ void gpuloop
                 std::exit(EXIT_FAILURE);
             }
         }
+        cuda_check(cudaMemsetAsync(slot.device_det_count, 0, sizeof(int),
+                                   trtengine.stream));
         {
-            NvtxRange range("D2H Raw Output");
-            cuda_check(cudaMemcpyAsync(slot.host_output, slot.device_output,
-                                       trtengine.output_bytes_, cudaMemcpyDeviceToHost,
+            NvtxRange range("GPU Decode/Filter");
+            if(!launchDecodeFilter(slot.device_output, slot.device_detections,
+                                   slot.device_det_count, confidence_threshold,
+                                   trtengine.stream))
+            {
+                std::cerr<<"GPU decode/filter failed\n";
+                std::exit(EXIT_FAILURE);
+            }
+        }
+        {
+            NvtxRange range("D2H Detections");
+            cuda_check(cudaMemcpyAsync(slot.host_det_count, slot.device_det_count,
+                                       sizeof(int), cudaMemcpyDeviceToHost,
+                                       trtengine.stream));
+            cuda_check(cudaMemcpyAsync(slot.host_detections, slot.device_detections,
+                                       8400 * sizeof(detection), cudaMemcpyDeviceToHost,
                                        trtengine.stream));
         }
         cudaEventRecord(slot.output_ready,trtengine.stream);
@@ -232,8 +247,9 @@ void cpupostloop
         //process
         {
             NvtxRange range("CPU Postprocess");
-            const std::vector<detection> det2 =
-                pos.process(slot.host_output, slot.meta, confidence_threshold);
+            int count=*slot.host_det_count;
+            const std::vector<detection> det2(slot.host_detections,
+                                              slot.host_detections+count);
 
             std::vector<detection> det3=pos.nms(det2);
             
