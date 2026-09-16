@@ -160,33 +160,8 @@ void gpuloop
             );
         }
         {
-            NvtxRange range("Submit TensorRT");
-            if(!trtengine.inferfram(slot.device_input, slot.device_output))
-            {
-                std::cerr<<"TensorRT submission failed\n";
-                std::exit(EXIT_FAILURE);
-            }
-        }
-        cuda_check(cudaMemsetAsync(slot.device_det_count, 0, sizeof(int),
-                                   trtengine.stream));
-        {
-            NvtxRange range("GPU Decode/Filter");
-            if(!launchDecodeFilter(slot.device_output, slot.device_detections,
-                                   slot.device_det_count, confidence_threshold,
-                                   trtengine.stream))
-            {
-                std::cerr<<"GPU decode/filter failed\n";
-                std::exit(EXIT_FAILURE);
-            }
-        }
-        {
-            NvtxRange range("D2H Detections");
-            cuda_check(cudaMemcpyAsync(slot.host_det_count, slot.device_det_count,
-                                       sizeof(int), cudaMemcpyDeviceToHost,
-                                       trtengine.stream));
-            cuda_check(cudaMemcpyAsync(slot.host_detections, slot.device_detections,
-                                       8400 * sizeof(detection), cudaMemcpyDeviceToHost,
-                                       trtengine.stream));
+            NvtxRange range("CUDA Graph/TRT+Post+D2H");
+            cuda_check(cudaGraphLaunch(slot.graph_exec, trtengine.stream));
         }
         cudaEventRecord(slot.output_ready,trtengine.stream);
 
@@ -316,4 +291,88 @@ void cpupostloop
      }
         
     }
+}
+
+
+
+
+bool initcudagraph(
+    FramSlot& slot,
+    trtengine& trtengine,
+    float confidence_threshold
+){
+    cudaError_t err;
+
+    err=cudaStreamBeginCapture(
+        trtengine.stream,
+        cudaStreamCaptureModeGlobal
+    );
+    if(err!=cudaSuccess)
+        return false;
+
+    if(!trtengine.inferfram
+        (
+            slot.device_input,
+            slot.device_output
+        ))
+        {
+            std::cout<<"inferDevice"<<std::endl;
+            return false;
+        }
+
+
+        cudaMemsetAsync(
+            slot.device_det_count,
+            0,
+            sizeof(int),
+            trtengine.stream
+        );
+    //cuda_decodeFileter
+        
+        if(!launchDecodeFilter(
+            slot.device_output,
+            slot.device_detections,
+            slot.device_det_count,
+            confidence_threshold,
+            trtengine.stream
+        ))
+        {
+            std::cout<<"gpu process"<<std::endl;
+            return false;
+        }
+
+        cudaMemcpyAsync(
+            slot.host_det_count,
+            slot.device_det_count,
+            sizeof(int),
+            cudaMemcpyDeviceToHost,
+            trtengine.stream
+        );
+        cudaMemcpyAsync(
+            slot.host_detections,
+            slot.device_detections,
+            8400*sizeof(detection),
+            cudaMemcpyDeviceToHost,
+            trtengine.stream
+        );
+
+        err=cudaStreamEndCapture(
+            trtengine.stream,
+            &slot.graph
+        );
+
+        if(err!=cudaSuccess||slot.graph==nullptr)
+            return false;
+
+        err=cudaGraphInstantiate(
+            &slot.graph_exec,
+            slot.graph,
+            nullptr,
+            nullptr,
+            0);
+
+        if(err!=cudaSuccess)
+            return false;
+            
+        return true;
 }

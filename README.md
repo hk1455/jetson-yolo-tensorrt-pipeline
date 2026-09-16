@@ -10,7 +10,7 @@
 | `v2-gpu-post` | CUDA decode/filter | ~384 FPS |
 | `v3-cuda-graph` | CUDA Graph replay | ~463 FPS |
 
-当前快照：**v2-gpu-post**。GitHub `main` 保持最终版 `v3-cuda-graph`。
+当前快照：**v3-cuda-graph**。GitHub `main` 保持最终版 `v3-cuda-graph`。
 
 三个标签指向三个不同提交，按 CPU 后处理 → GPU 后处理 → CUDA Graph 顺序组织。
 v1/v2 根据现有源码中保留的注释恢复，不是当时实验的原始 Git 快照；v3 整理自当前最终实现。

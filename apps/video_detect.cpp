@@ -239,7 +239,11 @@ int main(){
                 return -1;
         }
         cuda_check(cudaStreamSynchronize(trtengine.stream));
-
+        if(!initcudagraph(slot, trtengine, confidence_threshold))
+        {
+            std::cerr<<"CUDA Graph initialization failed\n";
+            return -1;
+        }
     }
 
     std::thread captureLoop_thread
