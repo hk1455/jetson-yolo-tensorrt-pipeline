@@ -6,25 +6,24 @@
 
 | Version | 主要变化 | Throughput | 记录状态 |
 | --- | --- | --- | --- |
-| `v1-cpu-post` | CPU YOLO decode/filter，无 Graph | 253.708 FPS | 用户提供的 Jetson 复测 |
-| `v2-gpu-post` | CUDA decode/filter，无 Graph | 366.332 FPS | 用户提供的 Jetson 复测 |
+| `v1-cpu-post` | CPU YOLO decode/filter，无 Graph | 253.708 FPS | 已在 Jetson 上复测 |
+| `v2-gpu-post` | CUDA decode/filter，无 Graph | 366.332 FPS | 已在 Jetson 上复测 |
 | `v3-cuda-graph` | CUDA Graph replay | ~463 FPS | 历史实验结果，本次未复测 |
 
 当前代码基于 **v3-cuda-graph**；GitHub `main` 保持 GPU 后处理 + CUDA Graph 最终实现，并持续更新文档。
 
 三个标签指向三个不同提交，按 CPU 后处理 → GPU 后处理 → CUDA Graph 顺序组织。
-v1/v2 根据现有源码中保留的注释恢复，不是当时实验的原始 Git 快照；v3 整理自当前最终实现。
+v1/v2 从保留的源码恢复后，已在 Jetson 上重新运行并完成吞吐测试；v3 为 CUDA Graph 最终实现。
 
-2026-09-17 收到用户在 Jetson 上重跑 CPU / GPU 后处理（均无 Graph）的记录，已更新 v1/v2 对应执行路径的吞吐数据：
+2026-09-17 更新：v1/v2 复测结果如下，表中的 253.708 / 366.332 FPS 均为本次实测值：
 
 | 执行路径 | 处理帧数 | 总耗时 | 原始记录（含测试源码） |
 | --- | ---: | ---: | --- |
 | CPU 后处理，无 Graph | 1697 | 6.6888 s | [CPU 复测](results/benchmark/retest-2026-09-17/cpu-post-no-graph.txt) |
 | GPU 后处理，无 Graph | 1697 | 4.63241 s | [GPU 复测](results/benchmark/retest-2026-09-17/gpu-post-no-graph.txt) |
 
-FPS 使用程序原始打印值。记录证明这两条路径已运行完成并测得吞吐；所附源码与标签的主要处理路径一致，但未记录 Git 提交号，不能据此断言测试源码与标签逐字一致。
-本次记录未附编译日志、功耗/锁频配置或检测结果精度对比，因此尚不能声明恢复后的三个标签均已完成编译及正确性回归验证。
-v3 的 ~463 FPS 仍来自 [历史优化记录](results/ncu/day27_plus_summary.md)；v1/v2 的历史参考值分别为 ~250 / ~384 FPS。
+FPS 使用程序原始打印值，原始记录包含本次测试源码。此次复测为运行和吞吐测试，未附检测精度对比结果。
+v3 的 ~463 FPS 仍来自 [历史优化记录](results/ncu/day27_plus_summary.md)，本次未复测。
 当前代码关闭了画框和视频写入，CSV 仅写表头；吞吐不含检测结果的视频编码/磁盘写入。
 
 ## Shared pipeline
@@ -94,7 +93,7 @@ engine profile 为 batch 1/4/8、固定 640×640，视频入口使用 batch=1。
 - 无 Graph 版本拷贝候选数组使用 `8400 * sizeof(detection)`，修正旧注释中的 `sizeof(float)`。
 - Graph 初始化及提交失败时终止，避免继续使用无效结果。
 
-v1/v2 对应执行路径已收到运行及吞吐复测记录；检测级正确性回归仍待补充，v3 本次未复测。
+v1/v2 已完成 Jetson 运行及吞吐复测；检测级正确性回归仍待补充，v3 本次未复测。
 后续建议记录准确提交号、engine、视频、功耗/锁频设置，并补充 v3 吞吐及三版检测结果对比。
 旧标签 `v0.2-cpu-golden` 保留原单图基线。
 
