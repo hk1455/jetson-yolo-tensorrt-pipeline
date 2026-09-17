@@ -1,0 +1,445 @@
+frames=1697
+second=4.63241
+fpss=366.332:
+
+#include<cstdint>
+#include<cstddef>
+#include <condition_variable>
+#include<algorithm>
+#include <atomic>
+#include <opencv2/opencv.hpp>
+#include <nvtx3/nvToolsExt.h>
+#include <NvInfer.h>
+#include <deque>
+
+#include "fram_slot.hpp"
+#include "cuda_postprocess.hpp"
+
+
+void captureLoop(
+    const std::string& video_path,
+    BoundedQueue<int>& free_slot,
+    BoundedQueue<FramePacket>& frame_queue,
+    std::array<FramSlot, 2>& slots
+)
+{
+ 
+    cv::VideoCapture cap(video_path);
+
+    if(!cap.isOpened())
+    {
+        std::cerr<<"fail to open vedio\n";
+
+        frame_queue.close();
+        return;
+    }
+
+    int64_t frame_id=0;
+
+    while(true)
+    {
+        int slot_index=-1;
+
+        {     
+            NvtxRange range("Queue Wait/Free Slot");
+            if(!free_slot.pop(slot_index))
+            {
+                break;
+            }
+        }
+
+        FramSlot& slot=slots[slot_index];
+
+        {        
+            NvtxRange range("capture Grab");
+            if(!cap.grab())
+            {
+                free_slot.pushBlocking(slot_index);
+
+                break;
+            }
+        }
+
+        {        
+            NvtxRange range("capture Retrieve");
+            if(!cap.retrieve(slot.image))
+            {
+                free_slot.pushBlocking(slot_index);
+
+                break;
+            }
+        }
+
+
+        slot.frame_id=frame_id++;
+
+        slot.capture_time=Clock::now();
+
+
+        FramePacket packet;
+        packet.slot_index=slot_index;
+
+        {
+            NvtxRange range("Frame Queue Push");            
+            if(!frame_queue.pushBlocking(std::move(packet)))
+            {
+        
+                free_slot.pushBlocking(slot_index);
+                break;
+            }
+        }
+
+    }
+
+    std::cout<<"Capture finished\n";
+    frame_queue.close();
+};
+
+
+void gpuloop
+(
+    BoundedQueue<FramePacket>& frame_queue,
+    BoundedQueue<ResultPacket>& result_packet,
+    BoundedQueue<int>& free_slot,
+    std::array<FramSlot, 2>& slots,
+    float confidence_threshold,
+    int dst_width,
+    int dst_height,
+    cudaStream_t preprocess_stream,
+    trtengine& trtengine
+)
+
+{
+    FramePacket packet;
+
+    while(true)
+    {
+        {
+            NvtxRange range("Queue wait/Frame Pop");
+
+            if(!frame_queue.pop(packet))
+                break;
+        }
+
+        int slot_index=packet.slot_index;
+        FramSlot& slot=slots[slot_index];
+
+        bool ok=false;
+
+       {
+            NvtxRange range("submit Preprocess");
+
+            ok=cudaPreprocessV1(
+                    slot.device_src,
+                    slot.image.cols,
+                    slot.image.rows,
+                    slot.image.step,
+
+                    slot.device_input,
+                    dst_width,
+                    dst_height,
+                    
+                    slot.meta,
+                    preprocess_stream
+                );
+        }
+        
+        if(!ok)
+        {
+                std::cerr<<"fail to CUDA preprocess\n";
+                return;
+        }
+
+        {        
+            NvtxRange range("CUDA Stream Dependency");
+
+            cudaEventRecord(
+                slot.preprocess_done,
+                preprocess_stream
+            );
+            cudaStreamWaitEvent(
+                trtengine.stream,
+                slot.preprocess_done,
+                0
+            );
+        }
+//cuda graph：把cpu launch infer和process安排进同一个graph
+        // {
+        //     NvtxRange range("CUDA Graph/TRT+Post+D2H");
+
+        //     cudaGraphLaunch(
+        //         slot.graph_exec,
+        //         trtengine.stream
+        //     );
+        // }
+//普通版本
+       { 
+            NvtxRange range("Submit TensorRt");
+            if(!trtengine.inferfram
+                (
+                    slot.device_input,
+                    slot.device_output
+                ))
+                {
+                    std::cout<<"inferDevice"<<std::endl;
+                    return;
+                }
+        }
+        //cpu process
+        //  cudaMemcpyAsync(
+        //         slot.host_output,
+        //         slot.device_output,
+        //         trtengine.output_bytes_,
+        //         cudaMemcpyDeviceToHost,
+        //         trtengine.stream
+        //     );
+
+    //gpu process
+        cudaMemsetAsync(
+            slot.device_det_count,
+            0,
+            sizeof(int),
+            trtengine.stream
+        );
+        {
+            NvtxRange range("GPU PROCESS");
+            if(!launchDecodeFilter(
+                slot.device_output,
+                slot.device_detections,
+                slot.device_det_count,
+                confidence_threshold,
+                trtengine.stream
+            ))
+            std::cout<<"gpu process"<<std::endl;
+        }
+
+       { 
+            NvtxRange range("D2H");
+            cudaMemcpyAsync(
+                slot.host_det_count,
+                slot.device_det_count,
+                sizeof(int),
+                cudaMemcpyDeviceToHost,
+                trtengine.stream
+            );
+            cudaMemcpyAsync(
+                slot.host_detections,
+                slot.device_detections,
+                8400*sizeof(detection),
+                cudaMemcpyDeviceToHost,
+                trtengine.stream
+            );
+        }
+        cudaEventRecord(slot.output_ready,trtengine.stream);
+
+
+        ResultPacket packet;
+        packet.slot_index=slot_index;
+
+        {
+            NvtxRange range("Queue Wait/Result Push");
+            if(!result_packet.pushBlocking(std::move(packet)))
+            {
+                cudaEventSynchronize(slot.output_ready);
+                free_slot.pushBlocking(slot_index);
+
+                break;
+            }
+        }
+
+    }
+    result_packet.close();
+};
+
+
+
+void cpupostloop
+(
+    BoundedQueue<ResultPacket>& result_packet,
+    BoundedQueue<int>& free_slot,
+    std::array<FramSlot, 2>& slots,
+    postprocess& pos,
+    float confidence_threshold,
+    std::ofstream& result_file,
+    cv::VideoWriter& writer,
+    std::atomic<int64_t>& processed_frames
+)
+{
+    ResultPacket packet;
+    while(true)
+   { 
+        {
+            NvtxRange range("Queue Wait/Result Pop");
+            if(!result_packet.pop(packet))
+            break;
+        }
+
+        int slot_index=packet.slot_index;
+        FramSlot& slot=slots[slot_index];
+
+        {
+            NvtxRange range("Wait Output Ready");
+            cudaEventSynchronize(slot.output_ready);
+        }
+
+        slot.post_start_time=Clock::now();
+
+        //process
+        {
+            NvtxRange range("CPU Postprocess");
+        //cpu postprocess
+            // std::vector<detection> det=pos.process(slot.host_output,slot.meta,confidence_threshold);
+            // const std::vector<detection> det2=det;
+            int cout=*slot.host_det_count;
+            const std::vector<detection> det2(slot.host_detections,slot.host_detections+cout);
+
+            std::vector<detection> det3=pos.nms(det2);
+            
+
+            for(int i=0;i<det3.size();i++)
+            { 
+                pos.size2original(det3[i],slot.meta.scale,slot.meta.pad_x,slot.meta.pad_y,slot.meta.original_width,slot.meta.original_height);
+
+                det3[i].x1=std::clamp(
+                    det3[i].x1,
+                    0.0f,
+                    static_cast<float>(slot.meta.original_width)
+                );
+
+                det3[i].x2=std::clamp(
+                    det3[i].x2,
+                    0.0f,
+                    static_cast<float>(slot.meta.original_width)
+                );
+            
+                det3[i].y1=std::clamp(
+                    det3[i].y1,
+                    0.0f,
+                    static_cast<float>(slot.meta.original_height)
+                );
+
+                det3[i].y2=std::clamp(
+                    det3[i].y2,
+                    0.0f,
+                    static_cast<float>(slot.meta.original_height)
+                );
+            }
+            processed_frames++;
+
+            // for(auto& d :det3)
+            // {
+            //     std::cout<<d.confidence<<d.class_id<<std::endl;
+            // }
+            // cv::Mat vis=slot.image.clone(); 
+            // for(int i=0;i<det3.size();i++)
+            // { 
+            
+            //     cv::Point topLeft(det3[i].x1, det3[i].y1);
+            //     cv::Point bottomRight(det3[i].x2, det3[i].y2);
+            //     cv::rectangle(vis, topLeft, bottomRight, cv::Scalar(255, 0, 0), 2); // 蓝色，线宽2[reference:8]
+            //     std::string label;
+            //     std::ostringstream oss;
+            //     oss << std::fixed << std::setprecision(2) << det3[i].confidence;
+            //     if(det3[i].class_id==0)
+            //         label = "person "+oss.str();
+            //     else
+            //         label = "umbrella "+oss.str();
+            //     int fontFace = cv::FONT_HERSHEY_COMPLEX;
+            //     double fontScale = 1;
+            //     cv::Scalar color(0, 0, 255); // 红色
+            //     int thickness = 1;
+
+            //     // 计算文字位置：左上角点 + 偏移（这里选择在框内偏移 5, 20 让文字显示在矩形内左上角）
+            //     cv::Point textOrg(topLeft.x, topLeft.y -5);
+            //     cv::putText(vis, label, textOrg, fontFace, fontScale, color, thickness);
+            // }
+            // writer.write(vis);
+        free_slot.pushBlocking(packet.slot_index);
+     }
+        
+    }
+}
+
+
+
+
+bool initcudagraph(
+    FramSlot& slot,
+    trtengine& trtengine,
+    float confidence_threshold
+){
+    cudaError_t err;
+
+    err=cudaStreamBeginCapture(
+        trtengine.stream,
+        cudaStreamCaptureModeGlobal
+    );
+    if(err!=cudaSuccess)
+        return false;
+
+    if(!trtengine.inferfram
+        (
+            slot.device_input,
+            slot.device_output
+        ))
+        {
+            std::cout<<"inferDevice"<<std::endl;
+            return false;
+        }
+
+
+        cudaMemsetAsync(
+            slot.device_det_count,
+            0,
+            sizeof(int),
+            trtengine.stream
+        );
+    //cuda_decodeFileter
+        
+        if(!launchDecodeFilter(
+            slot.device_output,
+            slot.device_detections,
+            slot.device_det_count,
+            confidence_threshold,
+            trtengine.stream
+        ))
+        {
+            std::cout<<"gpu process"<<std::endl;
+            return false;
+        }
+
+        cudaMemcpyAsync(
+            slot.host_det_count,
+            slot.device_det_count,
+            sizeof(int),
+            cudaMemcpyDeviceToHost,
+            trtengine.stream
+        );
+        cudaMemcpyAsync(
+            slot.host_detections,
+            slot.device_detections,
+            8400*sizeof(detection),
+            cudaMemcpyDeviceToHost,
+            trtengine.stream
+        );
+
+        err=cudaStreamEndCapture(
+            trtengine.stream,
+            &slot.graph
+        );
+
+        if(err!=cudaSuccess||slot.graph==nullptr)
+            return false;
+
+        err=cudaGraphInstantiate(
+            &slot.graph_exec,
+            slot.graph,
+            nullptr,
+            nullptr,
+            0);
+
+        if(err!=cudaSuccess)
+            return false;
+            
+        return true;
+}
