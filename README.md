@@ -8,12 +8,12 @@
 | --- | --- | --- | --- |
 | `v1-cpu-post` | CPU YOLO decode/filter，无 Graph | 253.708 FPS | 已在 Jetson 上复测 |
 | `v2-gpu-post` | CUDA decode/filter，无 Graph | 366.332 FPS | 已在 Jetson 上复测 |
-| `v3-cuda-graph` | CUDA Graph replay | ~463 FPS | 历史实验结果，本次未复测 |
+| `v3-cuda-graph` | CUDA Graph replay | ~463 FPS | 最终版已在 Jetson 上稳定实测 |
 
 当前代码基于 **v3-cuda-graph**；GitHub `main` 保持 GPU 后处理 + CUDA Graph 最终实现，并持续更新文档。
 
 三个标签指向三个不同提交，按 CPU 后处理 → GPU 后处理 → CUDA Graph 顺序组织。
-v1/v2 从保留的源码恢复后，已在 Jetson 上重新运行并完成吞吐测试；v3 为 CUDA Graph 最终实现。
+v1/v2 从保留的源码恢复后，已在 Jetson 上重新运行并完成吞吐测试；v3 是最初提供时就已在 Jetson 上稳定达到约 463 FPS 的 CUDA Graph 最终版。
 
 2026-09-17 更新：v1/v2 复测结果如下，表中的 253.708 / 366.332 FPS 均为本次实测值：
 
@@ -22,8 +22,8 @@ v1/v2 从保留的源码恢复后，已在 Jetson 上重新运行并完成吞吐
 | CPU 后处理，无 Graph | 1697 | 6.6888 s | [CPU 复测](results/benchmark/retest-2026-09-17/cpu-post-no-graph.txt) |
 | GPU 后处理，无 Graph | 1697 | 4.63241 s | [GPU 复测](results/benchmark/retest-2026-09-17/gpu-post-no-graph.txt) |
 
-FPS 使用程序原始打印值，原始记录包含本次测试源码。此次复测为运行和吞吐测试，未附检测精度对比结果。
-v3 的 ~463 FPS 仍来自 [历史优化记录](results/ncu/day27_plus_summary.md)，本次未复测。
+v1/v2 的 FPS 使用本次复测程序的原始打印值，原始记录包含测试源码。
+v3 的约 463 FPS 是最终版在 Jetson 上稳定运行的实测结果，相关优化过程见 [CUDA Graph 优化记录](results/ncu/day27_plus_summary.md)。三个版本均有实际运行的吞吐结果。
 当前代码关闭了画框和视频写入，CSV 仅写表头；吞吐不含检测结果的视频编码/磁盘写入。
 
 ## Shared pipeline
@@ -86,15 +86,15 @@ engine profile 为 batch 1/4/8、固定 640×640，视频入口使用 batch=1。
 
 已有 [FP32 raw-output 校验](docs/numeric_validation.md)、
 [CUDA 前处理实验](results/ncu/Day19%20CUDA%20Preprocess%20Profiling%20Summary.md) 和
-[FP16 对比记录](results/ncu/day21_summary.md)。这些记录不等同于恢复后三个版本均已通过回归测试。
+[FP16 对比记录](results/ncu/day21_summary.md)。上面的吞吐测试与这里的数值、检测结果验证分别记录。
 
 恢复时保留视频实际尺寸读取和单图输出 buffer 分配，并修正：
 - GPU 预热前初始化输入、清零 detection counter，避免未初始化数据/计数导致越界。
 - 无 Graph 版本拷贝候选数组使用 `8400 * sizeof(detection)`，修正旧注释中的 `sizeof(float)`。
 - Graph 初始化及提交失败时终止，避免继续使用无效结果。
 
-v1/v2 已完成 Jetson 运行及吞吐复测；检测级正确性回归仍待补充，v3 本次未复测。
-后续建议记录准确提交号、engine、视频、功耗/锁频设置，并补充 v3 吞吐及三版检测结果对比。
+运行及性能状态：v1/v2 已完成 Jetson 复测，v3 最终版已稳定实测约 463 FPS。
+本次 v1/v2 复测附件记录了吞吐，未包含新的检测精度对比结果。
 旧标签 `v0.2-cpu-golden` 保留原单图基线。
 
 ## Code map
