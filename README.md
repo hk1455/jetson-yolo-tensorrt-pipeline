@@ -1,4 +1,6 @@
-# YOLOv8n TensorRT Video Pipeline
+# High-Throughput YOLO Inference Pipeline on Jetson Orin with TensorRT, CUDA Graphs and GPU Postprocessing
+
+`jetson-yolo-tensorrt-pipeline`
 
 面向 NVIDIA Jetson AGX Orin 的 C++/CUDA 视频目标检测项目。通过零拷贝输入、GPU 前后处理、异步流水线和 CUDA Graph，最终版本吞吐达到约 **463 FPS**。
 
@@ -17,9 +19,9 @@
 
 | Version | 主要变化 | Throughput |
 | --- | --- | ---: |
-| [`v1-cpu-post`](https://github.com/hk1455/yolo-tensorrt-deploy/tree/v1-cpu-post) | CPU YOLO decode/filter | 253.708 FPS |
-| [`v2-gpu-post`](https://github.com/hk1455/yolo-tensorrt-deploy/tree/v2-gpu-post) | CUDA decode/filter | 366.332 FPS |
-| [`v3-cuda-graph`](https://github.com/hk1455/yolo-tensorrt-deploy/tree/v3-cuda-graph) | CUDA Graph replay | ~463 FPS |
+| [`v1-cpu-post`](https://github.com/hk1455/jetson-yolo-tensorrt-pipeline/tree/v1-cpu-post) | CPU YOLO decode/filter | 253.708 FPS |
+| [`v2-gpu-post`](https://github.com/hk1455/jetson-yolo-tensorrt-pipeline/tree/v2-gpu-post) | CUDA decode/filter | 366.332 FPS |
+| [`v3-cuda-graph`](https://github.com/hk1455/jetson-yolo-tensorrt-pipeline/tree/v3-cuda-graph) | CUDA Graph replay | ~463 FPS |
 
 配置：Jetson AGX Orin、YOLOv8n、TensorRT FP16、batch=1、模型输入 640×640。
 
@@ -34,8 +36,8 @@
 在 Jetson 上执行：
 
 ```bash
-git clone https://github.com/hk1455/yolo-tensorrt-deploy.git
-cd yolo-tensorrt-deploy
+git clone https://github.com/hk1455/jetson-yolo-tensorrt-pipeline.git
+cd jetson-yolo-tensorrt-pipeline
 
 cmake -S . -B build-local -DCMAKE_BUILD_TYPE=Release
 cmake --build build-local --target build_engine video_detect -j"$(nproc)"
